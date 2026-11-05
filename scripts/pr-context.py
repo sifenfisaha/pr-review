@@ -304,10 +304,19 @@ def ai_signals(author_login: str, body: str, commits: list[dict]) -> list[str]:
     if author_login.endswith("[bot]") or author_login.startswith("app/"):
         found.append(f"author is a bot account ({author_login})")
     low = (body or "").lower()
-    for m in AI_MARKERS:
-        if m in low:
-            found.append(f"description mentions '{m}'")
-            break
+    for line in (body or "").splitlines():
+        m = re.match(r"^\s*[-*]\s*\[(?:x|X)\]\s*(.+)$", line)
+        if m and re.search(r"(?i)\b(agent|agents|ai|llm|copilot|claude|codex|cursor|assistant|assisted)\b", m.group(1)):
+            found.append(f"description checkbox: {m.group(1).strip()[:120]}")
+    phrase = re.search(r"(?i)\b(an agent|ai|an llm|copilot|claude|codex|cursor)\b[^.\n]{0,40}\b(wrote|generated|authored|drafted|implemented|produced)\b"
+                       r"|\b(written|generated|authored|drafted|implemented|produced)\s+(by|with)\s+(an\s+)?(agent|ai|llm|copilot|claude|codex|cursor)\b", body or "")
+    if phrase:
+        found.append(f"description says: {' '.join(phrase.group(0).split())[:120]}")
+    elif not found:
+        for m in AI_MARKERS:
+            if m in low:
+                found.append(f"description mentions '{m}'")
+                break
     trailers = set()
     for c in commits:
         msg = f"{c.get('messageHeadline', '')}\n{c.get('messageBody', '')}"
@@ -501,9 +510,30 @@ query($owner:String!, $name:String!, $number:Int!, $after:String) {
     return threads
 
 
-def discussion_md(reviews: list[dict], threads: list[dict], comments: list[dict]) -> tuple[str, dict]:
+def threads_from_rest(repo: str, number: int) -> list[dict]:
+    """Inline threads rebuilt from REST review comments (no resolved state), for when GraphQL is unavailable."""
+    by_id, roots = {}, []
+    for c in gh_paginate(f"repos/{repo}/pulls/{number}/comments"):
+        node = {"author": {"login": (c.get("user") or {}).get("login", "?")}, "body": c.get("body", ""), "createdAt": c.get("created_at"), "url": c.get("html_url")}
+        if c.get("in_reply_to_id") and c["in_reply_to_id"] in by_id:
+            by_id[c["in_reply_to_id"]]["comments"]["nodes"].append(node)
+        else:
+            t = {"isResolved": None, "isOutdated": c.get("line") is None, "path": c.get("path"), "line": c.get("line"),
+                 "originalLine": c.get("original_line"), "comments": {"nodes": [node]}}
+            by_id[c["id"]] = t
+            roots.append(t)
+    return roots
+
+
+def strip_html_comments(text: str) -> str:
+    return re.sub(r"\n{3,}", "\n\n", re.sub(r"<!--.*?-->", "", text or "", flags=re.S)).strip()
+
+
+def discussion_md(reviews: list[dict], threads: list[dict], comments: list[dict], thread_note: str = "") -> tuple[str, dict]:
     parts = ["# Existing discussion", ""]
-    stats = {"reviews": len(reviews), "threads": len(threads), "unresolved": 0, "comments": len(comments)}
+    if thread_note:
+        parts += [thread_note, ""]
+    stats = {"reviews": len(reviews), "threads": len(threads), "unresolved": 0, "comments": len(comments), "thread_note": thread_note}
     parts.append(f"## Reviews ({len(reviews)})")
     parts.append("")
     if not reviews:
@@ -511,7 +541,7 @@ def discussion_md(reviews: list[dict], threads: list[dict], comments: list[dict]
     for r in reviews:
         who = (r.get("author") or {}).get("login", "?")
         parts.append(f"- **{who}** {r.get('state', '')} at {when(r.get('submittedAt'))}")
-        body = (r.get("body") or "").strip()
+        body = strip_html_comments(r.get("body") or "")
         if body:
             for line in body.splitlines()[:30]:
                 parts.append(f"  > {line}")
@@ -521,8 +551,11 @@ def discussion_md(reviews: list[dict], threads: list[dict], comments: list[dict]
     if not threads:
         parts.append("None yet.")
     for t in threads:
-        state = "resolved" if t.get("isResolved") else "UNRESOLVED"
-        if not t.get("isResolved"):
+        if t.get("isResolved") is None:
+            state = "resolution unknown"
+        else:
+            state = "resolved" if t.get("isResolved") else "UNRESOLVED"
+        if t.get("isResolved") is False:
             stats["unresolved"] += 1
         if t.get("isOutdated"):
             state += ", outdated"
@@ -539,7 +572,7 @@ def discussion_md(reviews: list[dict], threads: list[dict], comments: list[dict]
         parts.append("None yet.")
     for c in comments:
         who = (c.get("author") or {}).get("login", "?")
-        text = (c.get("body") or "").strip()
+        text = strip_html_comments(c.get("body") or "")
         parts.append(f"- **{who}** at {when(c.get('createdAt'))}:")
         for line in text.splitlines()[:20]:
             parts.append(f"  > {line}")
@@ -687,6 +720,8 @@ def summary_md(meta: dict, files: list[dict], check_counts: Counter, failing: li
         L.append("")
         L.append(f"{disc['reviews']} review(s), {disc['threads']} inline thread(s) ({disc['unresolved']} unresolved), {disc['comments']} conversation comment(s). Details in `discussion.md`."
                  + (" Re-review: read it before anything else and review the delta." if disc["reviews"] or disc["threads"] else ""))
+        if disc.get("thread_note"):
+            L.append(disc["thread_note"])
         L.append("")
     L.append("## Files in this directory")
     L.append("")
@@ -770,11 +805,17 @@ def gather_pr(repo: str, number: int, out: Path | None, want_diff: bool) -> Path
     write(out / "checks.md", checks_text)
     failing = [row.split("|")[1].strip() for row in checks_text.splitlines() if "|" in row and any(
         s in row for s in ("| failure |", "| error |", "| cancelled |", "| timed_out |", "| action_required |"))]
+    thread_note = ""
     try:
         threads = fetch_threads(owner, name, number)
-    except Fail:
-        threads = []
-    disc_text, disc = discussion_md(pr.get("reviews") or [], threads, pr.get("comments") or [])
+    except Fail as e:
+        try:
+            threads = threads_from_rest(repo, number)
+            thread_note = "Resolved/unresolved state unavailable (GraphQL failed; threads rebuilt from the REST comments)."
+        except Fail as e2:
+            threads = []
+            thread_note = f"WARNING: could not fetch inline review threads ({str(e).splitlines()[-1][:100]}; {str(e2).splitlines()[-1][:100]}). Check `gh api repos/{repo}/pulls/{number}/comments` by hand."
+    disc_text, disc = discussion_md(pr.get("reviews") or [], threads, pr.get("comments") or [], thread_note)
     write(out / "discussion.md", disc_text)
     hits = scan_diff(diff_text, generated) if diff_text else []
     meta["grep_hits"] = len(hits)

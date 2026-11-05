@@ -71,6 +71,7 @@ Contents
 - **Database.** `rows.Close()`; `rows.Err()` after the loop; `sql.Tx` not rolled back on error; `QueryRow` versus `Query`.
 - **Modules.** `go.sum` consistent (`GOTOOLCHAIN=local go mod tidy -diff` prints nothing, `go mod verify` says all modules verified; without `GOTOOLCHAIN=local` the first command may try to download the toolchain named in `go.mod`, and either may download the module graph, so run them in the background on a big repo); `replace` directives left in; new module's import path is the maintained fork; the `/go.mod` hash in `go.sum` unchanged means no transitive dependency moved.
 - **Tests.** `t.Parallel()` with shared state; table tests missing the failing case; `testing.Short()`; golden files regenerated wholesale.
+- **Running them.** Check the `toolchain` line in `go.mod` first: with `GOTOOLCHAIN=auto` (the default) `go test` may silently download that toolchain, which can stall for a long time; if the installed Go satisfies the `go` floor, `GOTOOLCHAIN=local go test ./pkg/...` runs immediately. For mutation runs, `go test -overlay overlay.json` substitutes a modified copy of a file without touching the checkout.
 
 ## 5. Rust
 

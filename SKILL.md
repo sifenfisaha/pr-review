@@ -14,7 +14,7 @@ A review has two jobs that pull against each other: protect the codebase and its
 
 ## What you were asked
 
-Arguments: `$ARGUMENTS`
+The request (and anything typed after `/pr-review`, which Claude Code appends to this skill as `ARGUMENTS:`) tells you:
 
 - **Target**: a PR number (`123`), a GitHub URL, `owner/repo#123`, a branch name, or nothing. Nothing means the current branch against its base, which is the self-review-before-opening-a-PR case. A branch name is first looked up as an open PR; if there is none it is reviewed locally.
 - **`--post`** publishes the review to GitHub as one review with inline comments. **`--draft`** posts it as a *pending* review that only the user can see and submit from the GitHub UI. Without either flag the review stays in the terminal and the work directory. A posted review is a statement made under the user's name, so never post, approve or request changes unless this request asked for it. "Review PR 42" is not a request to post.
@@ -105,7 +105,7 @@ Senior reviewers are trusted because their findings are real. One confidently wr
 
 ### 7. Run things when it matters
 
-In the worktree, when the tier or the change calls for it: the affected tests (or the suite), the type checker, the linter, the build. For a GitHub PR, read `checks.md` first so you do not repeat what CI already proved and so you know what CI does *not* cover (a local branch has no CI record; say so in the Tests section). For risky logic, break it on purpose: revert the fix or flip the condition and confirm a test fails. A suite that stays green when the fix is removed is not testing the fix.
+In the worktree, when the tier or the change calls for it: the affected tests (or the suite), the type checker, the linter, the build. For a GitHub PR, read `checks.md` first so you do not repeat what CI already proved and so you know what CI does *not* cover (a local branch has no CI record; say so in the Tests section). For risky logic, break it on purpose: revert the fix or flip the condition and confirm a test fails. A suite that stays green when the fix is removed is not testing the fix. The worktree or scratch copy is yours to edit for this (it is not the user's checkout); restore it afterwards with `git checkout -- .`, or use a mechanism that leaves files alone such as `go test -overlay` or a second copy.
 
 When the test runner is not installed, use an ephemeral one rather than installing into the repository or the user's environment: `uv run --no-project --with pytest python3 -m pytest -p no:cacheprovider` for Python (the `-m` form puts the repository root on `sys.path`, `--no-project` stops uv looking for a project to sync, and no cache directory is left in the copy), `npx <tool>` for Node, nothing extra for `go test ./...` or `cargo test`. Run them in the worktree or scratch copy, never in the user's checkout.
 
@@ -154,6 +154,8 @@ Things that never block: style the formatter or linter already enforces; a prefe
 **Self-review (no PR yet).** Same workflow against the local branch, plus a PR-hygiene section: is the title a sentence about the outcome, does the description say why and how to test, is there a screenshot for UI, does the commit history read, is anything unrelated bundled in, is there uncommitted work?
 
 **AI-generated or suspected.** `summary.md` lists the signals (bot author, co-author trailers, tool mentions). Do not grade it differently, but spend the extra minutes where these changes fail. Read `references/ai-generated.md`.
+
+**Already merged or closed.** Say so in the first line, then review as if the merge were still ahead: the findings are just as real, but a blocking one becomes a follow-up issue or a fix-forward PR rather than a request for changes, and "is it safe to merge" becomes "did it ship anything we need to fix". `pr-worktree.sh` tells you when the head is already contained in the base.
 
 **Dependency bumps.** The diff is a manifest and a lockfile; the change is upstream. Open the compare view between the two versions (`gh api repos/OWNER/REPO/compare/vA...vB`, or the registry's changelog) and read the real diff, not just the release notes, which routinely undersell a release. Verify the lockfile hashes against the registry or checksum database when it is cheap (`GOTOOLCHAIN=local go mod verify` and `go mod tidy -diff`, `npm ci --dry-run`, `cargo tree`), check CI covers the paths that use the dependency, grep how this codebase imports and configures it, and look at issues filed upstream since the release. When the dependency sits on a user-visible path, diff its behavior old versus new on a few inputs. `callers.py` has nothing to say about a manifest-only diff. A bot author is a bump, not an AI-written change.
 
