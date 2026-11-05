@@ -1,0 +1,34 @@
+{
+  "repo": "acme/shop",
+  "pr": 412,
+  "event": "REQUEST_CHANGES",
+  "body": "**Verdict:** Request changes (one blocking issue, otherwise close)\n**Risk:** Medium: touches checkout totals for every order.\n\n## Summary\nAdds percentage and fixed-amount coupons to checkout: a `Coupon` model, validation in `apply_coupon`, and a new admin endpoint to create codes. The approach fits how `Cart` already composes totals. One ordering bug makes discounted orders over-charge tax; details inline.\n\n## Tests\nCI green (unit, lint). I ran `pytest tests/test_cart.py` in a worktree: 14 passed. Removing the discount line in `Cart.total` left all tests green, so no test pins the new behavior; see the inline comment on `tests/test_cart.py:41`.\n\n## Missing from the diff\n- `expires_at` is stored on `Coupon` but never checked in `apply_coupon`.\n- The admin endpoint has no permission check; every other admin route uses `@require_role('admin')`.\n\n## Praise\n`Coupon.from_code` normalising case and whitespace before lookup is exactly the kind of thing that avoids a week of support tickets.",
+  "comments": [
+    {
+      "path": "src/billing/total.py",
+      "line": 88,
+      "body": "**issue (blocking):** `tax` is computed from `subtotal` on line 84, before the discount is applied here, so a 100% coupon still charges tax on the full price.\n\nCompute tax on the discounted amount:\n\n```suggestion\n    discounted = max(subtotal - discount, Decimal(\"0\"))\n    tax = (discounted * self.tax_rate).quantize(CENT)\n    return discounted + tax\n```\n\nA test with a 100% coupon on a taxable item would have caught this; see the note on `tests/test_cart.py`."
+    },
+    {
+      "path": "tests/test_cart.py",
+      "line": 41,
+      "body": "**suggestion:** This test calls `apply_coupon` but asserts nothing about the resulting total, so it passes with or without the discount. Asserting `cart.total() == Decimal(\"54.00\")` (50 after a 50% coupon, plus 8% tax) would pin the behavior and would have failed on the ordering bug above."
+    },
+    {
+      "path": "src/admin/routes.py",
+      "start_line": 12,
+      "line": 18,
+      "body": "**issue (blocking):** This route creates coupons but has no `@require_role('admin')`; the other admin routes in this file all do. Anyone authenticated can mint 100% coupons."
+    },
+    {
+      "path": "src/billing/coupons.py",
+      "line": 23,
+      "body": "**question:** `Coupon.from_code` lowercases the input but the migration adds a case-sensitive unique index on `code`. Are codes meant to be case-insensitive? If so the index should be on `lower(code)` or the column normalised on write; otherwise `SAVE10` and `save10` can both exist and only one is ever found."
+    },
+    {
+      "path": "src/billing/coupons.py",
+      "line": 40,
+      "body": "**nitpick (non-blocking):** `c` is used across 20 lines here; `coupon` would save the reader a scroll."
+    }
+  ]
+}

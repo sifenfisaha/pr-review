@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: reviews-github-pr-by-url
+expected_outcome: |
+  A senior-style review of the PR: the verdict first with a one-line rationale, a summary of the change in the reviewer's own words, severity-ranked findings each anchored to path:line, the CI status and exactly what was run locally, the changes the reviewer expected but did not find in the diff, specific praise, and nothing posted to GitHub.

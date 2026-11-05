@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: dependency-bump-stays-quick
+expected_outcome: |
+  A short, proportionate review of a two-line Go dependency bump: a verdict, what changed in the dependency between the two versions (from its release notes or upstream diff) with any breaking changes or security notes called out, confirmation of CI status or go.mod/go.sum consistency, and no style nits. Nothing is posted to GitHub.
