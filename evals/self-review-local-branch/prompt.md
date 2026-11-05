@@ -5,6 +5,6 @@ timeout_seconds: 1500
 allowed_tools: [Read, Glob, Grep, Skill, Write, Edit, Bash]
 ---
 
-I am about to open a PR from the feature/coupons branch in ./shop (the base is main). Review it the way a senior engineer would before I send it to the team. Do not change any files in the repo.
+I am about to open a PR from the feature/pagination branch in ./directory (the base is main). Review it the way a senior engineer would before I send it to the team. Do not change any files in the repo.
 
-Input files: shop.bundle
+Input files: directory.bundle

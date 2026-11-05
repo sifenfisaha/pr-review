@@ -7,9 +7,12 @@
 #
 # Where the code comes from:
 #   inside a clone of the same repository  -> a worktree of that clone; the only change to the clone is a
-#                                             ref under refs/pr-review/ (hidden from `git branch`)
+#                                             ref under refs/pr-review/ (hidden from `git branch`) and the
+#                                             worktree registration, both removed by --cleanup
 #   anywhere else                          -> a blobless, no-checkout clone kept in ~/.cache/pr-review/repos/,
 #                                             then a worktree of it
+#   a repository with no GitHub remote     -> --branch NAME clones the local checkout into a scratch copy,
+#                                             leaving the repository untouched
 # Worktrees live in ~/.cache/pr-review/worktrees/<owner>__<repo>/pr-<n>. Re-running updates an existing
 # worktree to the PR's current head. --cleanup removes the worktree and the ref.
 #
@@ -51,12 +54,46 @@ command -v git >/dev/null || { echo "pr-worktree: git is required" >&2; exit 1; 
 command -v gh  >/dev/null || { echo "pr-worktree: the GitHub CLI (gh) is required" >&2; exit 1; }
 
 # ---------------------------------------------------------------- which repository, which clone
-CWD_REPO=""
+CWD_ROOT="" CWD_REPO=""
 if git rev-parse --show-toplevel >/dev/null 2>&1; then
+  CWD_ROOT="$(git rev-parse --show-toplevel)"
   CWD_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
 fi
 [ -n "$REPO" ] || REPO="$CWD_REPO"
-[ -n "$REPO" ] || { echo "pr-worktree: cannot tell which repository; run inside a clone or pass --repo OWNER/REPO" >&2; exit 2; }
+
+if [ -z "$REPO" ]; then
+  # No GitHub repository in sight. A branch of the local repository can still be reviewed from a clone of it.
+  if [ -n "$CWD_ROOT" ] && [ -n "$BRANCH" ]; then
+    SAFE="$(printf '%s' "$BRANCH" | tr -c 'A-Za-z0-9._-' '_')"
+    WT="$CACHE/worktrees/local__$(basename "$CWD_ROOT")/branch-$SAFE"
+    if [ "$CLEANUP" = 1 ]; then rm -rf "$WT"; log "removed $WT"; exit 0; fi
+    SHA="$(git -C "$CWD_ROOT" rev-parse --verify --quiet "refs/heads/$BRANCH^{commit}" 2>/dev/null || git -C "$CWD_ROOT" rev-parse --verify --quiet "$BRANCH^{commit}" 2>/dev/null || true)"
+    [ -n "$SHA" ] || { echo "pr-worktree: branch '$BRANCH' not found in $CWD_ROOT" >&2; exit 1; }
+    if git -C "$WT" rev-parse --git-dir >/dev/null 2>&1; then
+      git -C "$WT" fetch --quiet origin 2>/dev/null || true
+      git -C "$WT" checkout --detach --force --quiet "$SHA"
+      log "updated clone to $(git -C "$WT" rev-parse --short HEAD)"
+    else
+      rm -rf "$WT"; mkdir -p "$(dirname "$WT")"
+      git clone --quiet --no-checkout "$CWD_ROOT" "$WT"
+      git -C "$WT" checkout --detach --quiet "$SHA"
+      log "cloned your checkout (no GitHub remote found) to a scratch copy at $(git -C "$WT" rev-parse --short HEAD); your repository was not modified"
+    fi
+    for cand in main master develop trunk; do
+      if B="$(git -C "$CWD_ROOT" rev-parse --verify --quiet "$cand^{commit}" 2>/dev/null)"; then
+        MB="$(git -C "$CWD_ROOT" merge-base "$B" "$SHA" 2>/dev/null || true)"
+        [ -n "$MB" ] && log "base guess: $cand (merge-base ${MB:0:12}); inside the scratch copy: git diff ${MB:0:12}..HEAD"
+        break
+      fi
+    done
+    log "run tests and greps inside the scratch copy"
+    echo "$WT"
+    exit 0
+  elif [ -n "$CWD_ROOT" ] && [ -n "$PR" ]; then
+    echo "pr-worktree: this repository has no GitHub remote that gh can see; pass --repo OWNER/REPO for PR $PR" >&2; exit 2
+  fi
+  echo "pr-worktree: cannot tell which repository; run inside a clone, pass --repo OWNER/REPO, or use --branch inside a local repository" >&2; exit 2
+fi
 SLUG="${REPO//\//__}"
 
 REMOTE="origin"

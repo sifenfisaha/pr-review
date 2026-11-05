@@ -9,6 +9,7 @@ Usage
   pr-context.py                                      the current branch against its base (self-review)
 
 Options
+  -C PATH             run as if started in PATH (the repository to review, for local and branch reviews)
   --repo OWNER/REPO   repository for a bare number or branch (default: the repository of the current directory)
   --base REF          base ref for local reviews (default: origin/HEAD, then main, master, develop)
   --out DIR           work directory (default: ~/.cache/pr-review/<owner>__<repo>/pr-<n>)
@@ -25,6 +26,8 @@ The work directory path is printed on the last line of stdout. Files written:
   discussion.md     existing reviews, inline threads (resolved or not) and conversation
   diff.patch        the full unified diff
   meta.json         machine-readable metadata (repo, number, head sha, base, risk flags, suggested depth, ...)
+  uncommitted.patch (local reviews only) working-tree changes not yet committed, when there are any
+checks.md and discussion.md exist only for GitHub PRs. Files from a previous run are removed first.
 """
 from __future__ import annotations
 
@@ -364,6 +367,19 @@ def write(path: Path, text: str):
     path.write_text(text if text.endswith("\n") else text + "\n")
 
 
+OUTPUTS = ["summary.md", "description.md", "linked-issues.md", "reading-order.md", "files.tsv", "commits.md",
+           "checks.md", "discussion.md", "diff.patch", "meta.json", "uncommitted.patch"]
+
+
+def fresh(out: Path) -> Path:
+    """Create the work directory and drop outputs of an earlier run, so nothing stale survives. review.md and
+    review.json written by the reviewer are kept."""
+    out.mkdir(parents=True, exist_ok=True)
+    for name in OUTPUTS:
+        (out / name).unlink(missing_ok=True)
+    return out
+
+
 def write_files_tsv(out: Path, files: list[dict]):
     rows = ["status\tadded\tdeleted\tbucket\tflags\tpath"]
     for f in files:
@@ -658,8 +674,7 @@ def gather_pr(repo: str, number: int, out: Path | None, want_diff: bool) -> Path
     rest = gh_json("api", f"repos/{repo}/pulls/{number}")
     raw_files = gh_paginate(f"repos/{repo}/pulls/{number}/files")
 
-    out = out or (CACHE / repo.replace("/", "__") / f"pr-{number}")
-    out.mkdir(parents=True, exist_ok=True)
+    out = fresh(out or (CACHE / repo.replace("/", "__") / f"pr-{number}"))
 
     files = []
     for f in raw_files:
@@ -776,8 +791,7 @@ def gather_local(branch: str | None, base_flag: str | None, out: Path | None, wa
     if merge_base == head_sha:
         raise Fail(f"'{branch_name}' has no commits beyond {base}; nothing to review (uncommitted changes: use `git diff` directly, or commit first)")
 
-    out = out or (CACHE / "local" / os.path.basename(root) / re.sub(r"[^\w.-]+", "_", branch_name))
-    out.mkdir(parents=True, exist_ok=True)
+    out = fresh(out or (CACHE / "local" / os.path.basename(root) / re.sub(r"[^\w.-]+", "_", branch_name)))
 
     numstat = git("diff", "--numstat", f"{merge_base}..{head_sha}", cwd=root)
     namestat = git("diff", "--name-status", "-M", f"{merge_base}..{head_sha}", cwd=root)
@@ -859,11 +873,18 @@ def gather_local(branch: str | None, base_flag: str | None, out: Path | None, wa
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("target", nargs="?", help="PR number, URL, OWNER/REPO#N, branch, or nothing for the current branch")
+    ap.add_argument("-C", dest="path", metavar="PATH", help="run as if started in PATH (the repository to review)")
     ap.add_argument("--repo", help="OWNER/REPO for a bare number or branch")
     ap.add_argument("--base", help="base ref for local reviews")
     ap.add_argument("--out", help="work directory")
     ap.add_argument("--no-diff", action="store_true", help="do not write diff.patch")
     a = ap.parse_args(argv)
+    if a.path:
+        try:
+            os.chdir(a.path)
+        except OSError as e:
+            print(f"pr-context: cannot enter {a.path}: {e}", file=sys.stderr)
+            return 1
     try:
         run(["gh", "auth", "status"])
     except Fail as e:

@@ -26,10 +26,10 @@ Arguments: `$ARGUMENTS`
 ### 0. Gather the context
 
 ```bash
-python3 ${CLAUDE_SKILL_DIR}/scripts/pr-context.py <target> [--base REF] [--repo OWNER/REPO]
+python3 ${CLAUDE_SKILL_DIR}/scripts/pr-context.py <target> [--base REF] [--repo OWNER/REPO] [-C /path/to/repo]
 ```
 
-For a local or branch review, run it from inside the repository. The last line of output is the work directory. It holds `summary.md` (read this first), `description.md`, `linked-issues.md`, `reading-order.md`, `files.tsv`, `commits.md`, `checks.md`, `discussion.md`, `diff.patch` and `meta.json`. Read `summary.md`, then `description.md` and `linked-issues.md` in full. Skim `discussion.md` so you do not repeat what a human already said, and so a re-review only looks at what changed since the last round.
+For a local or branch review, run it from inside the repository or pass `-C`. The last line of output is the work directory. It holds `summary.md` (read this first), `description.md`, `linked-issues.md`, `reading-order.md`, `files.tsv`, `commits.md`, `diff.patch` and `meta.json`; for a GitHub PR also `checks.md` and `discussion.md`; for a local review with uncommitted work also `uncommitted.patch`. Read `summary.md`, then `description.md` and `linked-issues.md` in full. Skim `discussion.md` so you do not repeat what a human already said, and so a re-review only looks at what changed since the last round.
 
 ### 1. Understand the intent before reading any code
 
@@ -55,7 +55,7 @@ Speed is part of quality. A review that arrives a day late costs the team more t
 bash ${CLAUDE_SKILL_DIR}/scripts/pr-worktree.sh <N> [--repo OWNER/REPO]      # or: --branch NAME
 ```
 
-This checks the PR head out into a detached worktree under `~/.cache/pr-review/worktrees/` (making a blobless clone first if the repository is not on this machine), so the user's own checkout is never touched. Re-running it updates the worktree to the PR's current head. The diff hides what matters most: the rest of the function, the callers, how the codebase already solves this elsewhere, and whether the tests would really fail. Open full files in the worktree; do not review from hunks.
+This checks the PR head out into a detached worktree under `~/.cache/pr-review/worktrees/` (making a blobless clone first if the repository is not on this machine), so the user's own checkout is never touched. For a branch of a repository with no GitHub remote, `--branch NAME` run inside it clones the checkout into a scratch copy instead. Re-running either updates the copy to the current head. If the user is already on the branch and just wants a look, their checkout is fine to read from; the copy is for running things. The diff hides what matters most: the rest of the function, the callers, how the codebase already solves this elsewhere, and whether the tests would really fail. Open full files in the worktree; do not review from hunks.
 
 **External or first-time contributors.** Before running anything (install, build, tests), read the changes to build scripts, CI workflows, `package.json` scripts, `setup.py`, `build.rs`, Makefiles and lockfiles. Running `npm install` on a PR runs the PR's code.
 
@@ -106,6 +106,8 @@ Senior reviewers are trusted because their findings are real. One confidently wr
 ### 7. Run things when it matters
 
 In the worktree, when the tier or the change calls for it: the affected tests (or the suite), the type checker, the linter, the build. Read `checks.md` first so you do not repeat what CI already proved and so you know what CI does *not* cover. For risky logic, break it on purpose: revert the fix or flip the condition and confirm a test fails. A suite that stays green when the fix is removed is not testing the fix.
+
+When the test runner is not installed, use an ephemeral one rather than installing into the repository or the user's environment: `uv run --with pytest python -m pytest` (or `uvx pytest`), `npx <tool>`, `go test ./...` needs nothing. Prefer `python -m pytest` over `pytest` so the repository root is on `sys.path`.
 
 Report exactly what you ran and what happened. If you could not run something, say so instead of implying you did.
 

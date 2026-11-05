@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -eu
-git clone -q "$(dirname "$0")/files/shop.bundle" shop
-git -C shop checkout -q feature/coupons
+git clone -q "$(dirname "$0")/files/directory.bundle" directory
+git -C directory checkout -q feature/pagination

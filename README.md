@@ -93,16 +93,18 @@ The scripts are plain Python and bash and work outside Claude too.
 
 ```bash
 scripts/pr-context.py acme/shop#412                 # prints the work directory; read summary.md
+scripts/pr-context.py -C ~/code/shop feature/x      # a local branch against its base, from anywhere
 scripts/pr-worktree.sh 412 --repo acme/shop         # prints the worktree path; --cleanup removes it
+scripts/pr-worktree.sh --branch feature/x           # inside a repo without a GitHub remote: a scratch clone
 scripts/callers.py --diff WORK/diff.patch --root WORKTREE [--all]
 scripts/post-review.py WORK/review.json --dry-run   # then without --dry-run to post
 ```
 
-Everything they write lives under `~/.cache/pr-review/` (override with `PR_REVIEW_CACHE`). Delete that directory at any time; the only trace left in a repository you reviewed from inside is a ref under `refs/pr-review/`, which `pr-worktree.sh --cleanup` removes.
+Everything they write lives under `~/.cache/pr-review/` (override with `PR_REVIEW_CACHE`). Delete that directory at any time. When a PR is checked out as a worktree of your own clone, the only traces left in that clone are a ref under `refs/pr-review/` and the worktree registration, both removed by `pr-worktree.sh --cleanup`; a repository without a GitHub remote is never touched at all.
 
 ## Testing the skill
 
-`evals/` holds three cases: a real public PR reviewed by URL, a local branch with planted bugs (shipped as a git bundle), and a dependency bump that should get a short, proportionate review. Each has a prompt and graders in the layout `claude plugin eval` reads. To run them from a terminal, copy the folder somewhere outside `~/.claude/skills`, add `.claude-plugin/plugin.json` containing `{"name": "pr-review"}`, and run `claude plugin eval . --allow-tools Write,Edit,Bash --scaffold`. These are billed model runs.
+`evals/` holds three cases: a real public PR reviewed by URL, a local branch with planted bugs (a paginated user directory shipped as a git bundle: an off-by-one offset, SQL built from a sort parameter, a lost last page, an unbounded page size, tests that catch none of it), and a dependency bump that should get a short, proportionate review. Each has a prompt and graders in the layout `claude plugin eval` reads. To run them from a terminal, copy the folder somewhere outside `~/.claude/skills`, add `.claude-plugin/plugin.json` containing `{"name": "pr-review"}`, and run `claude plugin eval . --allow-tools Write,Edit,Bash --scaffold`. These are billed model runs.
 
 ## Sources
 

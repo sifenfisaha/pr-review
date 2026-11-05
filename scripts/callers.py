@@ -137,8 +137,17 @@ def parse_diff(text: str) -> dict:
     files: dict[str, dict] = {}
     path = None
     old_path = None
+    hunk = None
+
+    def close_hunk():
+        nonlocal hunk
+        if hunk and hunk["name"] and hunk["touched"] and hunk["file"] in files:
+            files[hunk["file"]]["hunks"].append(hunk["name"])
+        hunk = None
+
     for raw in text.splitlines():
         if raw.startswith("diff --git"):
+            close_hunk()
             path, old_path = None, None
             continue
         if raw.startswith("--- "):
@@ -155,13 +164,14 @@ def parse_diff(text: str) -> dict:
         if path is None:
             continue
         if raw.startswith("@@"):
+            close_hunk()
             m = HUNK_RE.match(raw)
-            if m:
-                n = hunk_name(m.group(5))
-                if n:
-                    files[path]["hunks"].append(n)
+            hunk = {"name": hunk_name(m.group(5)) if m else None, "file": path, "def_seen": False, "touched": False}
+            continue
+        if hunk is None:
             continue
         if raw.startswith("-") and not raw.startswith("---"):
+            hunk["touched"] = True
             n = def_name(raw[1:])
             if n:
                 files[path]["removed"].append((n, raw[1:]))
@@ -169,6 +179,15 @@ def parse_diff(text: str) -> dict:
             n = def_name(raw[1:])
             if n:
                 files[path]["added"].append((n, raw[1:]))
+                hunk["def_seen"] = True
+            elif not hunk["def_seen"]:
+                # an added line before any new definition in this hunk changes the function named in the header;
+                # added lines after a new definition belong to that new definition. Blank lines, comments and
+                # decorators ahead of a new definition belong to it too.
+                stripped = raw[1:].strip()
+                if stripped and not stripped.startswith(("@", "#", "//", "/*", "*", "--")):
+                    hunk["touched"] = True
+    close_hunk()
     return files
 
 

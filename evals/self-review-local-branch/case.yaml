@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: self-review-local-branch
 expected_outcome: |
-  A review of the local branch against main that finds the real defects: tax is computed on the undiscounted subtotal so discounted orders are over-taxed (blocking, with a line in shop/cart.py); the new tests would not catch it (one asserts nothing about the total, one asserts nothing at all); coupon expiry is stored but never checked; a fixed coupon larger than the subtotal yields a negative total. It gives a verdict, separates blocking items from nits, comments on PR hygiene (no description, AI co-author trailer, README not updated), and leaves the repository untouched.
+  A review of the local branch against main that finds the real defects in list_users: the OFFSET is page * per_page so page 1 skips the first page (blocking, with a line in directory/users.py); the sort column and direction are interpolated into the SQL with an f-string (blocking, injection; allow-list the columns); total_pages uses floor division and drops the last partial page; per_page has no upper bound. It shows that the new tests would not catch the offset bug (one checks only the item count, one cannot tell which page it got, one asserts nothing). It gives a verdict, separates blocking items from nits, comments on PR hygiene (no description, AI co-author trailer, README not updated), and leaves the repository untouched.
 context:
   scaffold_script: place-files.sh
