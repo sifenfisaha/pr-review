@@ -34,6 +34,10 @@
 
 <CI status from `checks.md`. What you ran, with the exact command and outcome. What is not covered. Whether breaking the fix made a test fail.>
 
+## PR hygiene
+
+<Self-review (no PR yet) only, otherwise omit. Title as a sentence about the outcome; a description that says why, what and how to test; a screenshot for UI; a commit history that reads; nothing unrelated bundled; no uncommitted work left behind; AI assistance mentioned where the team expects it.>
+
 ## Praise
 
 <One or two specific things done well. Omit rather than invent.>

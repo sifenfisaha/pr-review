@@ -2,8 +2,8 @@
 # Check a pull request (or a branch) out into its own detached worktree so it can be read, grepped,
 # built and tested without touching the checkout the user is working in.
 #
-# usage: pr-worktree.sh <pr-number | PR URL | OWNER/REPO#N> [--repo OWNER/REPO] [--cleanup]
-#        pr-worktree.sh --branch <name> [--repo OWNER/REPO] [--cleanup]
+# usage: pr-worktree.sh <pr-number | PR URL | OWNER/REPO#N> [--repo OWNER/REPO] [-C /path/to/repo] [--cleanup]
+#        pr-worktree.sh --branch <name> [--repo OWNER/REPO] [-C /path/to/repo] [--cleanup]
 #
 # Where the code comes from:
 #   inside a clone of the same repository  -> a worktree of that clone; the only change to the clone is a
@@ -38,6 +38,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO="${2:-}"; shift 2 ;;
     --branch) BRANCH="${2:-}"; shift 2 ;;
+    -C) cd "${2:?-C needs a path}" || exit 2; shift 2 ;;
     --cleanup) CLEANUP=1; shift ;;
     -h|--help) usage 0 ;;
     *)
@@ -51,13 +52,14 @@ done
 [ -n "$PR" ] || [ -n "$BRANCH" ] || usage
 
 command -v git >/dev/null || { echo "pr-worktree: git is required" >&2; exit 1; }
-command -v gh  >/dev/null || { echo "pr-worktree: the GitHub CLI (gh) is required" >&2; exit 1; }
+HAVE_GH=1; command -v gh >/dev/null 2>&1 || HAVE_GH=0   # only needed when a GitHub repository is involved
+need_gh() { [ "$HAVE_GH" = 1 ] || { echo "pr-worktree: the GitHub CLI (gh) is required to work with GitHub pull requests; install it from https://cli.github.com and run 'gh auth login'" >&2; exit 1; }; }
 
 # ---------------------------------------------------------------- which repository, which clone
 CWD_ROOT="" CWD_REPO=""
 if git rev-parse --show-toplevel >/dev/null 2>&1; then
   CWD_ROOT="$(git rev-parse --show-toplevel)"
-  CWD_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
+  [ "$HAVE_GH" = 1 ] && CWD_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
 fi
 [ -n "$REPO" ] || REPO="$CWD_REPO"
 
@@ -94,6 +96,7 @@ if [ -z "$REPO" ]; then
   fi
   echo "pr-worktree: cannot tell which repository; run inside a clone, pass --repo OWNER/REPO, or use --branch inside a local repository" >&2; exit 2
 fi
+need_gh
 SLUG="${REPO//\//__}"
 
 REMOTE="origin"

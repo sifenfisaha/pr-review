@@ -300,6 +300,10 @@ def main(argv=None) -> int:
     if not results and not cls["new"] and not cls["touched"]:
         print("No function, class or export definitions recognised in the diff. Check the callers of the changed code by hand.")
         return 0
+    if not results:
+        print("No changed or removed signatures in this diff" + (" (and no changed bodies)" if a.all or not cls["touched"] else "")
+              + ", so there are no existing callers to re-check. The definitions below are new; their callers are inside the diff.")
+        print()
     for kind in ("signature changed", "removed", "renamed", "body changed"):
         group = [r for r in results if r["kind"] == kind]
         if not group:

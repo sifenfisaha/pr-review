@@ -153,12 +153,12 @@ DOCS_RE = re.compile(r"\.(md|mdx|rst|txt|adoc|asciidoc)$|(^|/)(docs?|documentati
 
 BUCKET_ORDER = ["tests", "contracts", "source", "config", "infra", "docs", "generated"]
 BUCKET_TITLES = {
-    "tests": "1. Tests: what the author believes the change does",
-    "contracts": "2. Contracts: schemas, migrations, types, interfaces, serialized formats",
-    "source": "3. Core logic: follow the call path from the entry point, not file order",
-    "config": "4. Configuration and dependencies",
-    "infra": "5. Infrastructure and CI",
-    "docs": "6. Docs and comments: are they still true?",
+    "tests": "Tests: what the author believes the change does",
+    "contracts": "Contracts: schemas, migrations, types, interfaces, serialized formats",
+    "source": "Core logic: follow the call path from the entry point, not file order",
+    "config": "Configuration and dependencies",
+    "infra": "Infrastructure and CI",
+    "docs": "Docs and comments: are they still true?",
     "generated": "Generated files and lockfiles: skim for the unexpected, do not read line by line",
 }
 
@@ -287,8 +287,20 @@ AI_MARKERS = [
 ]
 
 
+DEPENDENCY_BOTS = ("dependabot", "renovate", "greenkeeper", "snyk-bot", "pre-commit-ci", "pyup-bot", "depfu", "mend-bolt", "whitesource")
+BUMP_TITLE_RE = re.compile(r"(?i)\b(bump|update|upgrade)\b.*\b(from|to|->|→)\b|^chore\(deps(-dev)?\)|\bdependenc(y|ies)\b.*\b(update|bump)")
+
+
+def is_dependency_bot(author_login: str) -> bool:
+    low = (author_login or "").lower()
+    return any(b in low for b in DEPENDENCY_BOTS)
+
+
 def ai_signals(author_login: str, body: str, commits: list[dict]) -> list[str]:
+    """Signals that a coding agent wrote the change. Dependency bots are not one: they generate manifests, not code."""
     found = []
+    if is_dependency_bot(author_login):
+        return found
     if author_login.endswith("[bot]") or author_login.startswith("app/"):
         found.append(f"author is a bot account ({author_login})")
     low = (body or "").lower()
@@ -351,9 +363,11 @@ def suggest_depth(meta: dict) -> tuple[str, list[str]]:
         reasons.append(f"author association is {assoc}: treat as untrusted code before running anything")
     if meta.get("is_cross_repository"):
         reasons.append("comes from a fork")
+    buckets = set(meta["buckets_present"])
+    if meta.get("dependency_bump") and buckets <= {"config", "generated", "docs"}:
+        return "quick", ["dependency bump touching only manifests and lockfiles: read the upstream changes between the two versions, check the lockfile hashes and CI, look at how the code uses the dependency"]
     if reasons:
         return "deep", reasons
-    buckets = set(meta["buckets_present"])
     if meta["hand_written_lines"] < 60 and not flags and buckets <= {"docs", "config", "generated"}:
         return "quick", ["small change limited to docs, config or generated files"]
     if meta["hand_written_lines"] < 20 and not flags:
@@ -395,10 +409,15 @@ def reading_order_md(files: list[dict]) -> str:
         by[f["bucket"]].append(f)
     parts = ["# Reading order", "",
              "Tests first (what the author thinks the change does), then contracts (what radiates), then the core logic along its call path, then the boring files where outages hide. Open full files in the worktree; the diff is only a map.", ""]
+    step = 0
     for b in BUCKET_ORDER:
         if not by.get(b):
             continue
-        parts.append(f"## {BUCKET_TITLES[b]}")
+        if b == "generated":
+            parts.append(f"## {BUCKET_TITLES[b]}")
+        else:
+            step += 1
+            parts.append(f"## {step}. {BUCKET_TITLES[b]}")
         parts.append("")
         for f in sorted(by[b], key=lambda x: (-(x["additions"] + x["deletions"]), x["path"])):
             flag = f"  [{', '.join(f['flags'])}]" if f["flags"] else ""
@@ -413,6 +432,7 @@ def checks_md(rollup: list[dict] | None) -> tuple[str, Counter]:
     if not rollup:
         return "# Checks\n\nNo status checks reported.\n", counts
     rows = ["# Checks", "", "| Check | Status | Link |", "| --- | --- | --- |"]
+    skipped = []
     for c in rollup:
         if c.get("__typename") == "StatusContext":
             name, state, url = c.get("context", ""), (c.get("state") or "").lower(), c.get("targetUrl", "")
@@ -423,13 +443,20 @@ def checks_md(rollup: list[dict] | None) -> tuple[str, Counter]:
             status, conclusion = (c.get("status") or "").lower(), (c.get("conclusion") or "").lower()
             state = conclusion or status
             url = c.get("detailsUrl", "")
-        if state in ("success", "neutral", "skipped"):
+        if state == "skipped":
+            counts["skipped"] += 1
+            skipped.append(name)
+            continue
+        if state in ("success", "neutral"):
             counts["passing"] += 1
         elif state in ("failure", "error", "cancelled", "timed_out", "action_required", "startup_failure"):
             counts["failing"] += 1
         else:
             counts["pending"] += 1
         rows.append(f"| {md_escape_cell(name)} | {state} | {url} |")
+    if skipped:
+        rows.append("")
+        rows.append(f"Skipped ({len(skipped)}, usually conditional jobs that did not apply): " + ", ".join(md_escape_cell(n) for n in sorted(skipped)[:40]) + (" ..." if len(skipped) > 40 else ""))
     return "\n".join(rows) + "\n", counts
 
 
@@ -519,20 +546,25 @@ def discussion_md(reviews: list[dict], threads: list[dict], comments: list[dict]
     return "\n".join(parts) + "\n", stats
 
 
-ISSUE_RE = re.compile(r"(?:(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s*)?(?:https?://github\.com/([\w.-]+/[\w.-]+)/issues/(\d+)|(?<![\w/])#(\d+))", re.I)
+ISSUE_RE = re.compile(r"(?:(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s*)?(?:https?://(?:redirect\.)?github\.com/([\w.-]+/[\w.-]+)/(?:issues|pull)/(\d+)|(?<![\w/])#(\d+))", re.I)
 
 
-def linked_issues_md(repo: str, body: str) -> tuple[str, list[str]]:
+def linked_issues_md(repo: str, body: str, author: str = "") -> tuple[str, list[str]]:
+    parts = ["# Linked issues", ""]
+    titles = []
+    if is_dependency_bot(author):
+        parts.append("Bot-written description: the issue and PR numbers in it belong to the upstream project's release notes, not to this repository. Read them in description.md; the upstream compare view is the thing to open.")
+        return "\n".join(parts) + "\n", titles
     seen, refs = set(), []
     for m in ISSUE_RE.finditer(body or ""):
         r = m.group(1) or repo
         n = m.group(2) or m.group(3)
-        key = f"{r}#{n}"
+        if r.lower() != repo.lower() and not m.group(1):
+            continue
+        key = f"{r}#{n}".lower()
         if key not in seen:
             seen.add(key)
             refs.append((r, int(n)))
-    parts = ["# Linked issues", ""]
-    titles = []
     if not refs:
         parts.append("The description references no issues.")
     for r, n in refs[:6]:
@@ -571,7 +603,8 @@ def summary_md(meta: dict, files: list[dict], check_counts: Counter, failing: li
              f"Hand-written: {meta['hand_written_lines']} lines across {len(files) - len(gen)} files ({meta['size_class']})."
              + (f" Generated/lockfiles excluded: {len(gen)} files, {sum(f['additions'] + f['deletions'] for f in gen)} lines." if gen else ""))
     if meta["mode"] == "pr":
-        ci = f"{check_counts['passing']} passing, {check_counts['failing']} failing, {check_counts['pending']} pending" if sum(check_counts.values()) else "none reported"
+        ci = (f"{check_counts['passing']} passing, {check_counts['failing']} failing, {check_counts['pending']} pending"
+              + (f", {check_counts['skipped']} skipped" if check_counts.get("skipped") else "")) if sum(check_counts.values()) else "none reported"
         L.append(f"**Review decision:** {meta.get('review_decision') or 'none'} · **mergeable:** {meta.get('mergeable') or '?'}"
                  f"{' (' + meta['merge_state'].lower() + ')' if meta.get('merge_state') else ''} · **CI:** {ci}")
         if failing:
@@ -591,6 +624,8 @@ def summary_md(meta: dict, files: list[dict], check_counts: Counter, failing: li
     L.append(f"**Suggested depth:** **{meta['suggested_depth']}** ({'; '.join(meta['depth_reasons'])}). Override with judgment or `--depth`.")
     L.append("")
     L.append(f"**Tests touched:** {'yes' if meta['tests_touched'] else 'NO: no test files in this change'}.")
+    if meta.get("dependency_bump"):
+        L.append("**Dependency bump:** the review is the upstream change between the two versions, the lockfile hashes, CI, and how this code uses the dependency. See SKILL.md, Special situations.")
     if meta.get("ai_signals"):
         L.append("**AI-authorship signals:** " + "; ".join(meta["ai_signals"]) + ". See references/ai-generated.md.")
     if uncommitted:
@@ -720,12 +755,13 @@ def gather_pr(repo: str, number: int, out: Path | None, want_diff: bool) -> Path
         "tests_touched": any(f["bucket"] == "tests" for f in files),
         "generated_files": sorted(generated),
         "ai_signals": ai_signals(author, pr.get("body") or "", commits),
+        "dependency_bump": is_dependency_bot(author) or bool(BUMP_TITLE_RE.search(pr.get("title") or "")),
         "work_dir": str(out), "gathered_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
     }
     meta["suggested_depth"], meta["depth_reasons"] = suggest_depth(meta)
 
     write(out / "description.md", f"# {pr.get('title', '')}\n\n{pr.get('url', '')}\n\n{(pr.get('body') or '(no description)').strip()}")
-    issues_text, issue_titles = linked_issues_md(repo, pr.get("body") or "")
+    issues_text, issue_titles = linked_issues_md(repo, pr.get("body") or "", author)
     write(out / "linked-issues.md", issues_text)
     write_files_tsv(out, files)
     write(out / "reading-order.md", reading_order_md(files))

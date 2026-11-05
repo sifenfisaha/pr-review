@@ -69,7 +69,7 @@ Contents
 - **Interfaces.** Nil pointer in a non-nil interface; large interfaces instead of small ones; returning concrete types where the codebase returns interfaces (or vice versa).
 - **HTTP.** `http.Client` without `Timeout`; response body not closed or not drained; `http.DefaultClient` for production traffic; handler writing after `WriteHeader`.
 - **Database.** `rows.Close()`; `rows.Err()` after the loop; `sql.Tx` not rolled back on error; `QueryRow` versus `Query`.
-- **Modules.** `go.sum` consistent; `replace` directives left in; new module's import path is the maintained fork.
+- **Modules.** `go.sum` consistent (`GOTOOLCHAIN=local go mod tidy -diff` prints nothing, `go mod verify` says all modules verified; without `GOTOOLCHAIN=local` the first command may try to download the toolchain named in `go.mod`, and either may download the module graph, so run them in the background on a big repo); `replace` directives left in; new module's import path is the maintained fork; the `/go.mod` hash in `go.sum` unchanged means no transitive dependency moved.
 - **Tests.** `t.Parallel()` with shared state; table tests missing the failing case; `testing.Short()`; golden files regenerated wholesale.
 
 ## 5. Rust

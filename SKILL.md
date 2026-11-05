@@ -52,7 +52,7 @@ Speed is part of quality. A review that arrives a day late costs the team more t
 ### 3. Get the code, not just the diff
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/pr-worktree.sh <N> [--repo OWNER/REPO]      # or: --branch NAME
+bash ${CLAUDE_SKILL_DIR}/scripts/pr-worktree.sh <N> [--repo OWNER/REPO] [-C /path/to/repo]      # or: --branch NAME
 ```
 
 This checks the PR head out into a detached worktree under `~/.cache/pr-review/worktrees/` (making a blobless clone first if the repository is not on this machine), so the user's own checkout is never touched. For a branch of a repository with no GitHub remote, `--branch NAME` run inside it clones the checkout into a scratch copy instead. Re-running either updates the copy to the current head. If the user is already on the branch and just wants a look, their checkout is fine to read from; the copy is for running things. The diff hides what matters most: the rest of the function, the callers, how the codebase already solves this elsewhere, and whether the tests would really fail. Open full files in the worktree; do not review from hunks.
@@ -105,11 +105,11 @@ Senior reviewers are trusted because their findings are real. One confidently wr
 
 ### 7. Run things when it matters
 
-In the worktree, when the tier or the change calls for it: the affected tests (or the suite), the type checker, the linter, the build. Read `checks.md` first so you do not repeat what CI already proved and so you know what CI does *not* cover. For risky logic, break it on purpose: revert the fix or flip the condition and confirm a test fails. A suite that stays green when the fix is removed is not testing the fix.
+In the worktree, when the tier or the change calls for it: the affected tests (or the suite), the type checker, the linter, the build. For a GitHub PR, read `checks.md` first so you do not repeat what CI already proved and so you know what CI does *not* cover (a local branch has no CI record; say so in the Tests section). For risky logic, break it on purpose: revert the fix or flip the condition and confirm a test fails. A suite that stays green when the fix is removed is not testing the fix.
 
-When the test runner is not installed, use an ephemeral one rather than installing into the repository or the user's environment: `uv run --with pytest python -m pytest` (or `uvx pytest`), `npx <tool>`, `go test ./...` needs nothing. Prefer `python -m pytest` over `pytest` so the repository root is on `sys.path`.
+When the test runner is not installed, use an ephemeral one rather than installing into the repository or the user's environment: `uv run --no-project --with pytest python3 -m pytest -p no:cacheprovider` for Python (the `-m` form puts the repository root on `sys.path`, `--no-project` stops uv looking for a project to sync, and no cache directory is left in the copy), `npx <tool>` for Node, nothing extra for `go test ./...` or `cargo test`. Run them in the worktree or scratch copy, never in the user's checkout.
 
-Report exactly what you ran and what happened. If you could not run something, say so instead of implying you did.
+Report exactly what you ran and what happened. If you could not run something, say so instead of implying you did. If the environment refuses to execute the PR's code (an external-code policy, a missing toolchain), say that too and lean on CI's record, naming which checks cover the changed paths.
 
 ### 8. Write the review
 
@@ -154,6 +154,8 @@ Things that never block: style the formatter or linter already enforces; a prefe
 **Self-review (no PR yet).** Same workflow against the local branch, plus a PR-hygiene section: is the title a sentence about the outcome, does the description say why and how to test, is there a screenshot for UI, does the commit history read, is anything unrelated bundled in, is there uncommitted work?
 
 **AI-generated or suspected.** `summary.md` lists the signals (bot author, co-author trailers, tool mentions). Do not grade it differently, but spend the extra minutes where these changes fail. Read `references/ai-generated.md`.
+
+**Dependency bumps.** The diff is a manifest and a lockfile; the change is upstream. Open the compare view between the two versions (`gh api repos/OWNER/REPO/compare/vA...vB`, or the registry's changelog) and read the real diff, not just the release notes, which routinely undersell a release. Verify the lockfile hashes against the registry or checksum database when it is cheap (`GOTOOLCHAIN=local go mod verify` and `go mod tidy -diff`, `npm ci --dry-run`, `cargo tree`), check CI covers the paths that use the dependency, grep how this codebase imports and configures it, and look at issues filed upstream since the release. When the dependency sits on a user-visible path, diff its behavior old versus new on a few inputs. `callers.py` has nothing to say about a manifest-only diff. A bot author is a bump, not an AI-written change.
 
 **"Pure refactor" or "no behavior change".** A claim to verify, not a reason to skim. Compare before and after for every branch, default and error path; check that the tests did not change and that the existing ones would catch a behavior change.
 
