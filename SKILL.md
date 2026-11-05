@@ -3,7 +3,7 @@ name: pr-review
 description: Review a pull request, merge request, branch or local diff the way a trusted senior engineer does. It understands the intent first, calibrates depth to risk, checks the code out and reads full files (not just hunks) in a deliberate order, finds the callers and the changes that are missing from the diff, verifies every finding before reporting it, runs the tests when it matters, and delivers a clear verdict with severity-ranked, specific, kindly worded comments. Use this skill whenever the user asks to review, look over, check, critique, audit, approve or merge-check a PR, pull request, MR, branch, commit range or diff; pastes a GitHub PR URL or number; asks "is this safe to merge", "what do you think of this change", "review my changes before I open a PR", "do a code review", or "write (or post) review comments"; or wants a second opinion on a teammate's or an AI-generated change. It can post the finished review to GitHub as inline comments, but only when asked. Not for writing the code, the commit, or the PR description itself.
 argument-hint: "[PR number | PR URL | owner/repo#N | branch] [--post | --draft] [--depth quick|standard|deep] [--base <ref>]"
 license: MIT
-allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/pr-context.py *), Bash(bash ${CLAUDE_SKILL_DIR}/scripts/pr-worktree.sh *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/callers.py *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/post-review.py * --dry-run), Bash(gh pr view *), Bash(gh pr diff *), Bash(gh pr checks *), Bash(gh issue view *), Bash(gh run view *), Bash(git log *), Bash(git diff *), Bash(git show *), Bash(git blame *), Bash(git grep *)
+allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/pr-context.py *), Bash(bash ${CLAUDE_SKILL_DIR}/scripts/pr-worktree.sh *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/callers.py *), Bash(gh pr view *), Bash(gh pr diff *), Bash(gh pr checks *), Bash(gh issue view *), Bash(gh run view *), Bash(git log *), Bash(git diff *), Bash(git show *), Bash(git blame *), Bash(git grep *)
 ---
 
 # PR review, the way a senior engineer does it
@@ -29,7 +29,7 @@ Arguments: `$ARGUMENTS`
 python3 ${CLAUDE_SKILL_DIR}/scripts/pr-context.py <target> [--base REF] [--repo OWNER/REPO]
 ```
 
-The last line of output is the work directory. It holds `summary.md` (read this first), `description.md`, `linked-issues.md`, `reading-order.md`, `files.tsv`, `commits.md`, `checks.md`, `discussion.md`, `diff.patch` and `meta.json`. Read `summary.md`, then `description.md` and `linked-issues.md` in full. Skim `discussion.md` so you do not repeat what a human already said, and so a re-review only looks at what changed since the last round.
+For a local or branch review, run it from inside the repository. The last line of output is the work directory. It holds `summary.md` (read this first), `description.md`, `linked-issues.md`, `reading-order.md`, `files.tsv`, `commits.md`, `checks.md`, `discussion.md`, `diff.patch` and `meta.json`. Read `summary.md`, then `description.md` and `linked-issues.md` in full. Skim `discussion.md` so you do not repeat what a human already said, and so a re-review only looks at what changed since the last round.
 
 ### 1. Understand the intent before reading any code
 
